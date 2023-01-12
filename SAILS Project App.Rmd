@@ -1,0 +1,341 @@
+
+```{r}
+setwd("C:\\Users\\Jake Thoma\\Desktop\\School\\Projects\\Data")
+
+```
+```{r}
+print("hello world")
+```
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(car)
+library(MASS)
+library(leaps)
+
+kaggle <- read.csv("C:\\Users\\Jake Thoma\\Desktop\\School\\Projects\\Data\\Allteams.csv")
+cbbadv <- read.csv("C:\\Users\\Jake Thoma\\Desktop\\School\\Projects\\Data\\cbbAdvanced.csv")
+
+head(kaggle)
+head(cbbadv)
+```
+
+```{r}
+#create new stats: wpg- win %
+kaggle$wpg <- kaggle$W/kaggle$G
+head(kaggle)
+```
+
+```{r}
+#check basic correlations between all stats
+
+kagglenum = select_if(kaggle, is.numeric)
+head(kagglenum)
+cor(kagglenum)
+```
+
+```{r}
+#create correlation matrix across all numerical variables in cbb dataset
+cbbnum <- select_if(cbbadv, is.numeric)
+head(cbbnum)
+mat = cor(cbbnum)
+#mat
+
+```
+
+```{r}
+#correlation finder
+ORBper_cor <- cor(cbbnum[ , colnames(cbbnum) != "ORBper"],  # Calculate correlations
+                cbbnum$ORBper)
+#ORBper_cor
+TRBper_cor <- cor(cbbnum[ , colnames(cbbnum) != "TRBper"],  # Calculate correlations
+                cbbnum$TRBper)
+TRBper_cor
+oTRBper_cor <- cor(cbbnum[ , colnames(cbbnum) != "oTRBper"],  # Calculate correlations
+                cbbnum$oTRBper)
+#oTRBper_cor
+
+```
+
+```{r}
+#standardized datasets
+kaggleS <- kagglenum %>% mutate_all(~(scale(.) %>% as.vector))
+cbbadvS <- cbbnum %>% mutate_all(~(scale(.) %>% as.vector))
+```
+
+```{r}
+#step wise model selection process
+full_data = lm(WLper~., data=cbbadvS)
+none = lm(WLper~1, data=cbbadvS)
+bestlinmod = stepAIC(none, scope=list(upper=full_data), direction="both", trace="false")
+summary(bestlinmod)
+plot(bestlinmod)
+```
+
+```{r}
+vif(bestlinmod)
+```
+
+```{r}
+bestvars <- c("ORtg" ,"oORtg" , "FTperFGA", "oFTperFGA", 
+    "oORBper","oASTper", "TOVper", "Pace", "BLKper")
+cor(cbbnum[bestvars])
+```
+
+
+```{r}
+#CROSS VALIDATION setup
+set.seed(123)
+rows<-sample(nrow(cbbadvS))
+data_shuffled = cbbadvS[rows,]
+holdout <- data_shuffled[1:353, ]
+train <- data_shuffled[354:1761, ]
+
+```
+
+```{r}
+#Create training mod
+
+full_train = lm(WLper~., data=train)
+none_train = lm(WLper~1, data=train)
+trainingmod = stepAIC(none_train, scope=list(upper=full_train), direction="both", trace="false")
+summary(trainingmod)
+
+```
+
+```{r}
+#cross validate
+holdprediction = predict(trainingmod, newdata=holdout)
+holdoutresid = holdout$WLper - holdprediction
+crosscor = cor(holdout$WLper , holdprediction)
+shrinkage = summary(trainingmod)$r.squared - (crosscor^2)
+shrinkage
+
+#summary(trainingmod)
+```
+
+```{r}
+#extension of the training model to the entire data set
+bigtrainmod = lm(WLper ~ ORtg + oORtg + FTperFGA + oFTperFGA + oORBper + 
+    SOS + oASTper + TOVper + oBLKper, data = cbbadvS)
+summary(bigtrainmod)
+vif(bigtrainmod)
+```
+
+```{r}
+#use old model to look at new data
+#CURRENT DATA
+cbbAdv2022 <- read_csv("C:\\Users\\Jake Thoma\\Desktop\\School\\Projects\\Data\\cbbAdvanced2022.csv")
+cbb2022num = select_if(cbbAdv2022, is.numeric)
+cbbAdv2022S <- cbb2022num %>% mutate_all(~(scale(.) %>% as.vector))
+bestlinmod.1 = lm(WLper ~ ORtg + oORtg + FTperFGA + oFTperFGA + oORBper + 
+    SOS + oASTper + TOVper + oBLKper, data = cbbAdv2022S)
+summary(bestlinmod.1)
+plot(bestlinmod.1)
+```
+
+```{r}
+summary(bigtrainmod)
+plot(bigtrainmod)
+```
+
+
+
+
+
+```{r}
+#investigate high leverage points
+#sort(hatvalues(bestlinmod.1), decreasing=TRUE)
+a <- 2*9/1761
+b <- 3*9/1761
+exlev = which(hatvalues(bigtrainmod) >= b)
+#biglev = which(hatvalues(bestlinmod.1) > a)
+#unique(biglev)
+unique(exlev)
+```
+
+```{r}
+avPlots(bestlinmod.1)
+```
+
+```{r}
+#Interesting point
+cbbadvS[531,]
+cbbadvS[531,]
+resid.1 = resid(bigtrainmod)
+resid.1[531]
+```
+
+```{r}
+#Interesting point
+cbbadvS[754,]
+cbbadvS[754,]
+resid.1[754]
+```
+
+```{r}
+cbbadvS[641,]
+cbbadvS[641,]
+resid.1[641]
+```
+
+
+
+```{r}
+all.means <- colMeans(cbbnum)
+all.means2022 <- colMeans(cbb2022num)
+all.means
+```
+
+```{r}
+#t-test calculator (plug in desired variable and use index from above to compare data)
+t.test(cbb2022num$ORtg, mu=all.means[4])
+```
+
+```{r}
+
+#create a binary variable based on if a team made it to the NCCA tournament
+
+Tt <- cbbadv[grep("NCAA", cbbadv$School),]
+NotTt <- setdiff(cbbadv, Tt)
+
+Tt$tourney_team <- 1
+NotTt$tourney_team <- 0
+
+cbbadvt <- rbind(Tt, NotTt)
+cbbadvtnum = select_if(cbbadvt, is.numeric)
+
+```
+
+```{r}
+#standardized data with NCAA category
+
+TtS <- cbbadvS[grep("NCAA", cbbadv$School),]
+NotTtS <-setdiff(cbbadvS, TtS)
+
+TtS$tourney_team <- 1
+NotTtS$tourney_team <- 0
+
+cbbadvtS <- rbind(TtS, NotTtS)
+cbbadvtnumS = select_if(cbbadvtS, is.numeric)
+
+
+cbbadvtnumS$JakeScore = rowSums(cbbadvtnumS[,1:2])
+
+
+```
+
+```{r}
+library(bestglm)
+logmod <- glm(tourney_team~., family="binomial", data=cbbadvtnumS)
+summary(logmod)
+```
+
+```{r}
+#evaluate logistic models using McFadden pseudo-r2 and trial and error
+#***bestglm will not work with over 15 predictors
+
+library(pscl)
+pR2(logmod)['McFadden']
+```
+
+```{r}
+#model comparison tool (just for playing around with)
+
+logmod.2 = glm(tourney_team~ JakeScore, family="binomial", data=cbbadvtnumS)
+pR2(logmod.2)['McFadden']
+
+```
+
+```{r}
+
+logmod.3 = glm(tourney_team~WLper+SOS, family = binomial, data=cbbadvtnumS)
+pR2(logmod.3)['McFadden']
+summary(logmod.3)
+anova(logmod, logmod.3, test = "Chisq")
+```
+
+```{r}
+```
+
+```{r}
+#generate a very rough, inaccurate logistic curve for visualization purposes
+B0 = -2.87434
+B1 = 1.32261
+
+B2 = -3.33911
+B3 = 2.30140 + 0.90122
+plot(tourney_team~JakeScore, data=cbbadvtnumS)
+curve(exp(B2+B3*x)/(1+exp(B2+B3*x)), add=TRUE)
+```
+
+```{r}
+plot(density(TtS$ORBper))
+lines(density(NotTtS$ORBper), col="Red")
+t.test(NotTtS$ORBper, TtS$ORBper)
+```
+
+```{r}
+plot(density(TtS$oORBper))
+lines(density(NotTtS$oORBper), col="Red")
+t.test(NotTtS$oORBper, TtS$oORBper)
+```
+
+```{r}
+plot(density(TtS$TRBper))
+lines(density(NotTtS$TRBper), col="Red")
+t.test(NotTtS$TRBper, TtS$TRBper)
+```
+
+```{r}
+#split kaggle datasets by how far each team made it in march madness
+
+kaggle.1 = select_if(subset(kaggle, POSTSEASON == "Champions"), is.numeric)
+kaggle.2 =  select_if(subset(kaggle, POSTSEASON == "2ND"), is.numeric)
+kaggle.4 = select_if(subset(kaggle, POSTSEASON == "F4"), is.numeric)
+kaggle.8 = select_if(subset(kaggle, POSTSEASON == "E8"), is.numeric)
+kaggle.16 = select_if(subset(kaggle, POSTSEASON == "S16"), is.numeric)
+kaggle.32 =  select_if(subset(kaggle, POSTSEASON == "R32"), is.numeric)
+kaggle.64 = select_if(subset(kaggle, POSTSEASON == "R64"), is.numeric)
+kaggle.68 = select_if(subset(kaggle, POSTSEASON == "R68"), is.numeric)
+kaggle.NA = select_if(subset(kaggle, is.na(kaggle$POSTSEASON)), is.numeric)
+
+```
+
+```{r}
+library(ggplot2)
+ggplot(kaggle, aes(x=ADJOE, y=ADJDE, col=(POSTSEASON)))+geom_point()
+cor(kaggle$ADJOE, kaggle$ADJDE)
+```
+
+```{r}
+ggplot(kaggle, aes(x=EFG_O, y=EFG_D, col=POSTSEASON))+geom_point()
+```
+
+```{r}
+kaggle$POSTSEASON <- as.factor(kaggle$POSTSEASON)
+ggplot(kaggle, aes(x=reorder(POSTSEASON,BARTHAG), y=ADJOE,color = POSTSEASON)) + geom_boxplot()
+       #+scale_color_manual(values = c("#3a0ca3", "#c9184a", "#3a5a40"))
+```
+
+```{r}
+gfg_plot <- ggplot(kaggle, aes(x=POSTSEASON)) +  
+    geom_line(aes(y = ADJOE), color = "orange") +
+    geom_line(aes(y = ADJDE), color = "purple") + geom_jitter(aes(y=ADJOE, color=POSTSEASON))
+gfg_plot
+```
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
